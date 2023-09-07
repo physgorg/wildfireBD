@@ -103,33 +103,33 @@ def asymAbsorb(N,b,g):
 # full transition matrix for population dynamics
 def P(i,j,t,b,g):
     
-    if t == 0: # initial conditions, put in by hand to avoid zero errors
-        if i == j:
-            return 1
-        else:
-            return 0
+    # if t == 0: # initial conditions, put in by hand to avoid zero errors
+    #     if i == j:
+    #         return 1
+    #     else:
+    #         return 0
 
-    else:
-        if b != 1: # non-critical case
+    # else:
+    if b != 1: # non-critical case
 
-            if i <= j: # apply formula
-                
-                return float(pi(j,b,g)/pi(i,b,g)*b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g))
+        if i <= j: # apply formula
+            
+            return (pi(j,b,g)/pi(i,b,g)*b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g))
 
-            elif i > j: # do transposition, if necessary
+        elif i > j: # do transposition, if necessary
 
-                return pi(j,b,g)/pi(i,b,g)*P(j,i,t,b,g)
+            return pi(j,b,g)/pi(i,b,g)*P(j,i,t,b,g)
 
 
-        elif b == 1:
+    elif b == 1:
 
-            if i <= j: # apply formula
+        if i <= j: # apply formula
 
-                return pi(j,b,g)/pi(i,b,g)*float((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
+            return pi(j,b,g)/pi(i,b,g)*((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
 
-            elif i > j:
+        elif i > j:
 
-                return pi(j,b,g)/pi(i,b,g)*P(j,i,t,b,g)
+            return pi(j,b,g)/pi(i,b,g)*P(j,i,t,b,g)
 
 #########################################
 # Lifetime statistics 
