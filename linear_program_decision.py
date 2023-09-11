@@ -51,6 +51,6 @@ class birthdeathSMDP:
 
 	def setUpProblem(self,n_states):
 
-		
+		prob
 
 

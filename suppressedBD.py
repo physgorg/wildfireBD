@@ -7,6 +7,8 @@ import scipy.special as sc
 from matplotlib import rcParams
 from scipy.integrate import quad
 from scipy.interpolate import interp1d
+from scipy.integrate import quadrature
+
 import re
 import mpmath
 from tqdm import tqdm
@@ -42,9 +44,9 @@ def G(x): # gamma function
 
 def F(a,b,c,z):
     if a == b:
-        return float((1-z)**(-1*a)*sc.hyp2f1(a,c-b,c,z/(z-1)))
+        return np.real((1-z)**(-1*a)*sc.hyp2f1(a,c-b,c,z/(z-1)))
     else:
-        return float(sc.hyp2f1(a,b,c,z))
+        return np.real(sc.hyp2f1(a,b,c,z))
 
 def incBeta(z,a,b):
     return sc.beta(a,b)*sc.betainc(a,b,z)
@@ -72,9 +74,12 @@ def auxiliaryS(i,j,t,b,g): # element of population transition matrix
     return np.exp(prf+hyper)
 
 
-def pi(n,b,g): # potential coefficients
+def pi(n,b,g,ret_log = False): # potential coefficients
     if n == 0: # base case
         return 1
+
+    elif n < 100:
+        return b**n*G(n+1)/sc.poch(g+2,n)
     elif n >= 1000: # use asymptotic formula; still numerically rough
         coeff = G(g+2)
         term1 = np.exp((n-1)*np.log(b) - (g+1)*np.log(n))
@@ -83,8 +88,39 @@ def pi(n,b,g): # potential coefficients
         term4 = -1/48*g**2*(1+g)**2*(g+2)*(g+3)*np.exp((n-1)*np.log(b) - (g+4)*np.log(n))
         return coeff*(term1 + term2 + term3 + term4)
     else:
-        toexp = np.log(b**(n)*G(g+2)) + sc.loggamma(n+1)-sc.loggamma(g+n+2)
-        return np.exp(toexp)
+        # print(n)
+        toexp = n*np.log(b)*sc.loggamma(g+2) + sc.loggamma(n+1)-sc.loggamma(g+n+2)
+        if ret_log:
+            return toexp
+        else:
+            return np.exp(toexp)
+
+import warnings
+
+warnings.simplefilter("error", RuntimeWarning)
+
+def piRatio(n,m,b,g):
+    if n == m:
+        return 1
+    else:
+        top = pi(n,b,g,ret_log = True)
+        bot = pi(m,b,g,ret_log = True)
+
+        diff = top - bot 
+
+        try:
+            return np.exp(diff)
+        except RuntimeWarning:
+            print('overflow')
+            print("n =",n)
+            print("m =",m)
+            print("b =",b)
+            print("g =",g)
+            print("top =",top)
+            print('bot =',bot)
+            print('diff =',diff)
+            return np.exp(diff)
+
 
 #########################################
 
@@ -99,9 +135,28 @@ def asymAbsorb(N,b,g):
     else:
         return sc.betainc(N,g+1,1/b)
 
+def auxiliaryF(k,l,t,b,g):
+
+    coeff = l*np.log(b) + sc.loggamma(k+l+g+2) - sc.loggamma(k+1) - sc.loggamma(l+g+2)
+    prod = np.log(np.real(F(-1*k,-1*l,-1-k-l-g,bigX(t,b))))
+
+    return np.exp(coeff + prod)
+
+
+def stableP(i,j,t,b,g):
+
+    order1_part = 1/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)
+
+    other = auxiliaryF(i,j,t,b,g)
+    
+    return order1_part*other
+
+    
 
 # full transition matrix for population dynamics
 def P(i,j,t,b,g):
+
+    return stableP(i,j,t,b,g)
     
     # if t == 0: # initial conditions, put in by hand to avoid zero errors
     #     if i == j:
@@ -110,26 +165,26 @@ def P(i,j,t,b,g):
     #         return 0
 
     # else:
-    if b != 1: # non-critical case
+    # if b != 1: # non-critical case
 
-        if i <= j: # apply formula
+    #     if i <= j: # apply formula
             
-            return (pi(j,b,g)/pi(i,b,g)*b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g))
+    #         return (piRatio(j,i,b,g)*b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g))
 
-        elif i > j: # do transposition, if necessary
+    #     elif i > j: # do transposition, if necessary
 
-            return pi(j,b,g)/pi(i,b,g)*P(j,i,t,b,g)
+    #         return b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g)
 
 
-    elif b == 1:
+    # elif b == 1:
 
-        if i <= j: # apply formula
+    #     if i <= j: # apply formula
 
-            return pi(j,b,g)/pi(i,b,g)*((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
+    #         return piRatio(j,i,b,g)*((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
 
-        elif i > j:
+    #     elif i > j:
 
-            return pi(j,b,g)/pi(i,b,g)*P(j,i,t,b,g)
+    #         return ((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
 
 #########################################
 # Lifetime statistics 
@@ -214,7 +269,7 @@ def cfB(x,b,g): # partial fraction decomposition
         return -1*(g+2)/2 + x*g*(b-1)/(2*Disc(x,b))
 
 def firewalkW(n,x,b,g): # firewalk polynomials
-	# this function needs to use the mpmath 2F1 function, as it supports complex parameter values.
+    # this function needs to use the mpmath 2F1 function, as it supports complex parameter values.
     n = int(n)
     if b == 1:
         coeff = sc.poch(g+2,n)/sc.factorial(n)
@@ -289,17 +344,17 @@ def RnProb(n,bigN,b,g): # jump chain 'absorption' probabilities
         return (g+1)/(b+g+1)*S(n-1,bigN,0,b,g)
 
 def ftptIntegrate(func,b,g,kmax = 50,split_range = False): # integrate arbitrary kernel against measure
-	# note: a custom integrator should be used here, ideally
+    # note: a custom integrator should be used here, ideally
 
     integrand = lambda x: func(x)*contMeasure(x,b,g)
     ib = Ib(b)
     if not split_range:
-        cont_part,cont_error = quad(integrand,-1*ib,ib)
+        cont_part,cont_error = quadrature(integrand,-1*ib,ib)
     elif split_range:
         im = 0.8*ib
-        c1,e1 = quad(integrand,-1*ib,-1*im)
-        c2,e2 = quad(integrand,-1*im,im)
-        c3,e3 = quad(integrand,im,ib)
+        c1,e1 = quadrature(integrand,-1*ib,-1*im)
+        c2,e2 = quadrature(integrand,-1*im,im)
+        c3,e3 = quadrature(integrand,im,ib)
         cont_part = c1 + c2 + c3
     if b <= 1:
         return np.real(cont_part)
@@ -351,9 +406,9 @@ def EU(k,Y,theta): # expected number of births from state k in time t
     b = b-1
     k = k-1
     
-    pab = bd.P(a,b,t,beta,gamma)
+    pab = P(a,b,t,beta,gamma)
     
-    integrand = lambda tau: bd.P(a,k,tau,beta,gamma)*bd.P(k+1,b,t-tau,beta,gamma)
+    integrand = lambda tau: P(a,k,tau,beta,gamma)*P(k+1,b,t-tau,beta,gamma)
     result,error = quadrature(integrand,0.00001,t)
     result = lambdak/pab *result
     
@@ -361,7 +416,6 @@ def EU(k,Y,theta): # expected number of births from state k in time t
     
     return result,rescaled_error
     
-
 def ED(k,Y,theta): # expected number of deaths from state k in time t
 
     # Here, we regard k as the physical index (k = 0 absorbing)
@@ -388,12 +442,9 @@ def ED(k,Y,theta): # expected number of deaths from state k in time t
     b = b-1
     k = k-1
     
-#     print(k)
+    pab = P(a,b,t,beta,gamma)
     
-    pab = bd.P(a,b,t,beta,gamma)
-#     print(bd.P(k-1,b,0.1,beta,gamma))
-    
-    integrand = lambda tau: bd.P(a,k,tau,beta,gamma)*bd.P(k-1,b,t-tau,beta,gamma)
+    integrand = lambda tau: P(a,k,tau,beta,gamma)*P(k-1,b,t-tau,beta,gamma)
     result,error = quadrature(integrand,0.00001,t)
     result = muk/pab *result
     
@@ -420,16 +471,16 @@ def ET(k,Y,theta): # expected time spent in state k (expected absence of births/
     b = b-1
     k = k-1
     
-    pab = bd.P(a,b,t,beta,gamma)
+    pab = P(a,b,t,beta,gamma)
     
-    integrand = lambda tau: bd.P(a,k,tau,beta,gamma)*bd.P(k,b,t-tau,beta,gamma)
+    integrand = lambda tau: P(a,k,tau,beta,gamma)*P(k,b,t-tau,beta,gamma)
     result,error = quadrature(integrand,0.00001,t)
     result = result/(pab*delta_ph)
     
     rescaled_error = error/(pab*delta_ph)
     
     return result,rescaled_error
-    
+
 ################################################    
 state_cutoff = 500 
 ################################################   
@@ -441,10 +492,12 @@ def ET_particle(Y,theta,cutoff = state_cutoff): # expected time spent by particl
     return np.sum(array)
 
 # parameter updates
+pcutoff = 20 # no larger than this
 
 def beta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15): # update to birth rate parameter
     eu = 0
     et = ET_particle(Y,theta,cutoff = cutoff)
+    print('et',et)
     for k in range(cutoff):
         term = EU(k,Y,theta)[0]
         if np.isnan(term):
@@ -454,10 +507,13 @@ def beta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15): # update to birth ra
             print('theta =',theta)
             break
         if abs(term) < tol and k > max(Y[:2]):
-            return eu/et
+            print('eu',eu)
+            return min(eu/et,pcutoff)
         else:
+            print('term',k,term)
             eu += term
-    return eu/et
+    print('eu',eu)
+    return min(eu/et,pcutoff)
 
 def delta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
     beta,delta,gamma = theta
@@ -474,10 +530,10 @@ def delta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
             print('theta =',theta)
             break
         if abs(term) < tol and k > max(Y[:2]):
-            return ed/et
+            return min(ed/et,pcutoff)
         else:
             ed += term
-    return ed/et
+    return min(ed/et,pcutoff)
 
 
 def gamma_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
@@ -496,10 +552,10 @@ def gamma_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
             print('theta =',theta)
             break
         if abs(term) < tol and k > max(Y[:2]):
-            return eg/t_ph
+            return min(eg/t_ph,pcutoff)
         else:
             eg += term
-    return eg/t_ph
+    return min(eg/t_ph,pcutoff)
     
 
 def thetaUpdate(obs,theta):
@@ -627,8 +683,9 @@ class MP:
 # simulating birth-death processes in ensemble
 class BDensemble:
     
-    def __init__(self,beta,gamma,initial,sizeJ,ensembleN):
+    def __init__(self,beta,delta,gamma,initial,sizeJ,ensembleN):
         self.b = beta
+        self.d = delta
         self.g = gamma
         self.N = initial
         self.tot = ensembleN
@@ -645,7 +702,7 @@ class BDensemble:
         ones = np.ones(Nval)
         # aggregate birth/death rates
         lambdas = self.b*(jvs + ones)
-        mus = jvs + self.g*ones + ones
+        mus = self.d*jvs + self.g*ones + self.d*ones
 
         # propagate time
         tscales = 1/(lambdas + mus)
@@ -921,7 +978,7 @@ def TheGamblersPlot():
 
     bd = BDensemble(beta,gamma,N,J,100)
 
-    js,Fs,ts = bd.run_trajectory()
+    js,Fs,ts = run_trajectory()
 
     # compute burn probability for each population
 
