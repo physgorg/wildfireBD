@@ -77,7 +77,6 @@ def auxiliaryS(i,j,t,b,g): # element of population transition matrix
 def pi(n,b,g,ret_log = False): # potential coefficients
     if n == 0: # base case
         return 1
-
     elif n < 100:
         return b**n*G(n+1)/sc.poch(g+2,n)
     elif n >= 1000: # use asymptotic formula; still numerically rough
@@ -95,33 +94,24 @@ def pi(n,b,g,ret_log = False): # potential coefficients
         else:
             return np.exp(toexp)
 
-import warnings
+def auxiliaryF(k,l,t,b,g):
 
-warnings.simplefilter("error", RuntimeWarning)
+    coeff = l*np.log(b) + sc.loggamma(k+l+g+2) - sc.loggamma(k+1) - sc.loggamma(l+g+2)
+    prod = np.log(np.real(F(-1*k,-1*l,-1-k-l-g,bigX(t,b))))
 
-def piRatio(n,m,b,g):
-    if n == m:
-        return 1
-    else:
-        top = pi(n,b,g,ret_log = True)
-        bot = pi(m,b,g,ret_log = True)
-
-        diff = top - bot 
-
-        try:
-            return np.exp(diff)
-        except RuntimeWarning:
-            print('overflow')
-            print("n =",n)
-            print("m =",m)
-            print("b =",b)
-            print("g =",g)
-            print("top =",top)
-            print('bot =',bot)
-            print('diff =',diff)
-            return np.exp(diff)
+    return np.exp(coeff + prod)
 
 
+def P(i,j,t,b,g):
+
+    order1_part = 1/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)
+
+    other = auxiliaryF(i,j,t,b,g)
+    
+    return order1_part*other
+
+#########################################
+# Lifetime statistics 
 #########################################
 
 # probability of absorption
@@ -134,60 +124,6 @@ def asymAbsorb(N,b,g):
         return 1
     else:
         return sc.betainc(N,g+1,1/b)
-
-def auxiliaryF(k,l,t,b,g):
-
-    coeff = l*np.log(b) + sc.loggamma(k+l+g+2) - sc.loggamma(k+1) - sc.loggamma(l+g+2)
-    prod = np.log(np.real(F(-1*k,-1*l,-1-k-l-g,bigX(t,b))))
-
-    return np.exp(coeff + prod)
-
-
-def stableP(i,j,t,b,g):
-
-    order1_part = 1/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)
-
-    other = auxiliaryF(i,j,t,b,g)
-    
-    return order1_part*other
-
-    
-
-# full transition matrix for population dynamics
-def P(i,j,t,b,g):
-
-    return stableP(i,j,t,b,g)
-    
-    # if t == 0: # initial conditions, put in by hand to avoid zero errors
-    #     if i == j:
-    #         return 1
-    #     else:
-    #         return 0
-
-    # else:
-    # if b != 1: # non-critical case
-
-    #     if i <= j: # apply formula
-            
-    #         return (piRatio(j,i,b,g)*b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g))
-
-    #     elif i > j: # do transposition, if necessary
-
-    #         return b**(i)/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)*auxiliaryS(i,j,t,b,g)
-
-
-    # elif b == 1:
-
-    #     if i <= j: # apply formula
-
-    #         return piRatio(j,i,b,g)*((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
-
-    #     elif i > j:
-
-    #         return ((1/(1+t))**(g+2)*(t/(1+t))**(i+j)*auxiliaryS(i,j,t,b,g))
-
-#########################################
-# Lifetime statistics 
 
 # distribution of absorption times
 def lifetimeMeasure(t,N,b,g):
@@ -500,19 +436,10 @@ def beta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15): # update to birth ra
     print('et',et)
     for k in range(cutoff):
         term = EU(k,Y,theta)[0]
-        if np.isnan(term):
-            print("NAN ALERT")
-            print("k =",k)
-            print("Y =",Y)
-            print('theta =',theta)
-            break
-        if abs(term) < tol and k > max(Y[:2]):
-            print('eu',eu)
+        if abs(term) < tol and k > max(Y[:2]): # cut off sum if terms very small
             return min(eu/et,pcutoff)
         else:
-            print('term',k,term)
             eu += term
-    print('eu',eu)
     return min(eu/et,pcutoff)
 
 def delta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
@@ -523,12 +450,7 @@ def delta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
     et = ET_particle(Y,theta,cutoff = cutoff)
     for k in range(cutoff):
         term = q(k)*ED(k,Y,theta)[0]
-        if np.isnan(term):
-            print("NAN ALERT")
-            print("k =",k)
-            print("Y =",Y)
-            print('theta =',theta)
-            break
+        
         if abs(term) < tol and k > max(Y[:2]):
             return min(ed/et,pcutoff)
         else:
@@ -545,12 +467,7 @@ def gamma_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
     eg = 0
     for k in range(cutoff):
         term = (1-q(k))*ED(k,Y,theta)[0]
-        if np.isnan(term):
-            print("NAN ALERT")
-            print("k =",k)
-            print("Y =",Y)
-            print('theta =',theta)
-            break
+        
         if abs(term) < tol and k > max(Y[:2]):
             return min(eg/t_ph,pcutoff)
         else:

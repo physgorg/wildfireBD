@@ -48,6 +48,9 @@ if __name__ == "__main__":
 
 	rez = bd.BDestimate(observations)
 
+	print("FINAL ESTIMATE:")
+	print(rez)
+
 
 
 
