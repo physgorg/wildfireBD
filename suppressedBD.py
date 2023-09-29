@@ -43,10 +43,12 @@ def G(x): # gamma function
     return sc.gamma(x)
 
 def F(a,b,c,z):
-    if a == b:
-        return np.real((1-z)**(-1*a)*sc.hyp2f1(a,c-b,c,z/(z-1)))
-    else:
-        return np.real(sc.hyp2f1(a,b,c,z))
+
+    return np.real(sc.hyp2f1(a,b,c,z))
+    # if a == b:
+    #     return np.real((1-z)**(-1*a)*sc.hyp2f1(a,c-b,c,z/(z-1)))
+    # else:
+    #     return np.real(sc.hyp2f1(a,b,c,z))
 
 def incBeta(z,a,b):
     return sc.beta(a,b)*sc.betainc(a,b,z)
@@ -99,16 +101,28 @@ def auxiliaryF(k,l,t,b,g):
     coeff = l*np.log(b) + sc.loggamma(k+l+g+2) - sc.loggamma(k+1) - sc.loggamma(l+g+2)
     prod = np.log(np.real(F(-1*k,-1*l,-1-k-l-g,bigX(t,b))))
 
-    return np.exp(coeff + prod)
+    return coeff + prod
 
 
 def P(i,j,t,b,g):
 
-    order1_part = 1/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)
+    # order1_part = 1/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2)
+
+  
+    order1_part = np.log(1/sigma(t,b)*(z(t,b))**(i+j)*(1-z(t,b))**(g+2))
 
     other = auxiliaryF(i,j,t,b,g)
+
+    if np.any(np.isnan(order1_part)):
+        print('order1 is NAN')
+        print("i,j,t,b,g")
+        print(i,j,t,b,g)
+    if np.any(np.isnan(other)):
+        print('other is NAN')
+        print("i,j,t,b,g")
+        print(i,j,t,b,g)
     
-    return order1_part*other
+    return np.exp(order1_part + other)
 
 #########################################
 # Lifetime statistics 
@@ -285,12 +299,12 @@ def ftptIntegrate(func,b,g,kmax = 50,split_range = False): # integrate arbitrary
     integrand = lambda x: func(x)*contMeasure(x,b,g)
     ib = Ib(b)
     if not split_range:
-        cont_part,cont_error = quadrature(integrand,-1*ib,ib)
+        cont_part,cont_error = quad(integrand,-1*ib,ib)
     elif split_range:
         im = 0.8*ib
-        c1,e1 = quadrature(integrand,-1*ib,-1*im)
-        c2,e2 = quadrature(integrand,-1*im,im)
-        c3,e3 = quadrature(integrand,im,ib)
+        c1,e1 = quad(integrand,-1*ib,-1*im)
+        c2,e2 = quad(integrand,-1*im,im)
+        c3,e3 = quad(integrand,im,ib)
         cont_part = c1 + c2 + c3
     if b <= 1:
         return np.real(cont_part)
@@ -310,185 +324,6 @@ def BurnProb(bigN,J,b,g): # escape probability of footprint reaching a given siz
         kernel = lambda x: (g+1)/(b+g+1)*(1-x**(2*J-bigN))/(1-x)*firewalkW(bigN-1,x,b,g)
         
         return 1-ftptIntegrate(kernel,b,g,split_range = True)
-
-
-
-###################################################
-
-# Estimation functions
-
-def EU(k,Y,theta): # expected number of births from state k in time t
-    
-    # Here, we regard k as the physical index (k = 0 absorbing)
-    # a,b, are also regarded as physical indices (a,b ~ j)
-    # the function P(i,j,t,b,g) takes unphysical indices ( i = -1 absorbing)
-    
-    if k == 0: # zero probability of another birth from zero state
-        return (0,0)
-    
-    beta_ph,delta_ph,gamma_ph = theta 
-    a,b,t_ph = Y
-    
-    # rescale from physical parameters to rescaled params in transition matrix expression
-    beta = beta_ph/delta_ph
-    gamma = gamma_ph/delta_ph
-    t = delta_ph*t_ph
-    
-    # birth rate in physical state k
-    lambdak = k*beta
-    
-    # rescale indices to 'unphysical'
-    a = a-1
-    b = b-1
-    k = k-1
-    
-    pab = P(a,b,t,beta,gamma)
-    
-    integrand = lambda tau: P(a,k,tau,beta,gamma)*P(k+1,b,t-tau,beta,gamma)
-    result,error = quadrature(integrand,0.00001,t)
-    result = lambdak/pab *result
-    
-    rescaled_error = lambdak/pab*error
-    
-    return result,rescaled_error
-    
-def ED(k,Y,theta): # expected number of deaths from state k in time t
-
-    # Here, we regard k as the physical index (k = 0 absorbing)
-    # a,b, are also regarded as physical indices
-    # the function P(i,j,t,b,g) takes unphysical indices ( i = -1 absorbing)
-    
-    beta_ph,delta_ph,gamma_ph = theta
-    a,b,t_ph = Y
-    
-    if k == 0 or k == 1: # zero probability of another death from zero state, zero prob of absorption is b nonzero
-        return (0,0)
-    
-    
-    # rescale from physical parameters to rescaled params in transition matrix expression
-    beta = beta_ph/delta_ph
-    gamma = gamma_ph/delta_ph
-    t = delta_ph*t_ph
-    
-    # birth rate in physical state k
-    muk = k + gamma
-    
-    # rescale indices to 'unphysical' for when they are plugged in to transition matrix
-    a = a-1
-    b = b-1
-    k = k-1
-    
-    pab = P(a,b,t,beta,gamma)
-    
-    integrand = lambda tau: P(a,k,tau,beta,gamma)*P(k-1,b,t-tau,beta,gamma)
-    result,error = quadrature(integrand,0.00001,t)
-    result = muk/pab *result
-    
-    rescaled_error = muk/pab*error
-    
-    return result,rescaled_error
-    
-def ET(k,Y,theta): # expected time spent in state k (expected absence of births/deaths)
-    
-    beta_ph,delta_ph,gamma_ph = theta
-    a,b,t_ph = Y
-    
-    if k == 0: # zero probability of another death from zero state
-        return (0,0)
-        # What we return with k = 0 here is not important, it only enters as the product k*E(k,Y,theta)
-    
-    # rescale from physical parameters to rescaled params in transition matrix expression
-    beta = beta_ph/delta_ph
-    gamma = gamma_ph/delta_ph
-    t = delta_ph*t_ph
-    
-    # rescale indices to 'unphysical' for when they are plugged in to transition matrix
-    a = a-1
-    b = b-1
-    k = k-1
-    
-    pab = P(a,b,t,beta,gamma)
-    
-    integrand = lambda tau: P(a,k,tau,beta,gamma)*P(k,b,t-tau,beta,gamma)
-    result,error = quadrature(integrand,0.00001,t)
-    result = result/(pab*delta_ph)
-    
-    rescaled_error = error/(pab*delta_ph)
-    
-    return result,rescaled_error
-
-################################################    
-state_cutoff = 500 
-################################################   
-
-def ET_particle(Y,theta,cutoff = state_cutoff): # expected time spent by particle
-    
-    array = np.asarray([k*ET(k,Y,theta)[0] for k in range(cutoff)])
-    
-    return np.sum(array)
-
-# parameter updates
-pcutoff = 20 # no larger than this
-
-def beta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15): # update to birth rate parameter
-    eu = 0
-    et = ET_particle(Y,theta,cutoff = cutoff)
-    print('et',et)
-    for k in range(cutoff):
-        term = EU(k,Y,theta)[0]
-        if abs(term) < tol and k > max(Y[:2]): # cut off sum if terms very small
-            return min(eu/et,pcutoff)
-        else:
-            eu += term
-    return min(eu/et,pcutoff)
-
-def delta_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
-    beta,delta,gamma = theta
-    def q(k):
-        return k*delta/(delta*k + gamma)
-    ed = 0
-    et = ET_particle(Y,theta,cutoff = cutoff)
-    for k in range(cutoff):
-        term = q(k)*ED(k,Y,theta)[0]
-        
-        if abs(term) < tol and k > max(Y[:2]):
-            return min(ed/et,pcutoff)
-        else:
-            ed += term
-    return min(ed/et,pcutoff)
-
-
-def gamma_update(Y,theta,cutoff = state_cutoff,tol = 1e-15):
-    beta,delta,gamma = theta
-    def q(k):
-        return k*delta/(delta*k + gamma)
-    t_ph = Y[2]
-    beta,delta,gamma = theta
-    eg = 0
-    for k in range(cutoff):
-        term = (1-q(k))*ED(k,Y,theta)[0]
-        
-        if abs(term) < tol and k > max(Y[:2]):
-            return min(eg/t_ph,pcutoff)
-        else:
-            eg += term
-    return min(eg/t_ph,pcutoff)
-    
-
-def thetaUpdate(obs,theta):
-    bnew = beta_update(obs,theta)
-    dnew = delta_update(obs,theta)
-    gnew = gamma_update(obs,theta)
-    return (bnew,dnew,gnew)
-    
-
-def BDestimate(observations): # main function
-    theta = (1,1,1) # initialize parameters
-    for obs in observations:
-        print('observation',obs)
-        print("params =",theta)
-        theta = thetaUpdate(obs,theta)
-    return theta
 
 
 #########################################
@@ -539,8 +374,8 @@ class MP:
     def set_ylim(self, ymin, ymax):
         self.ax.set_ylim(ymin, ymax)
 
-    def show_legend(self,**kwargs):
-        self.ax.legend(self.legend_entries,**kwargs)
+    def show_legend(self,loc = 'lower right',**kwargs):
+        self.ax.legend(self.legend_entries,loc = loc,**kwargs)
         self.ax.legend().get_frame().set_linewidth(2)
 
     def set_xticks(self, ticks, labels, **kwargs):
@@ -618,12 +453,13 @@ class BDensemble:
         Nval = len(jvs)
         ones = np.ones(Nval)
         # aggregate birth/death rates
-        lambdas = self.b*(jvs + ones)
-        mus = self.d*jvs + self.g*ones + self.d*ones
+        lambdas = self.b*jvs
+        mus = self.d*jvs + self.g*ones
 
         # propagate time
         tscales = 1/(lambdas + mus)
         delta_ts = np.random.exponential(tscales)
+
 
         # update population & footprint
         ps = lambdas*tscales
@@ -642,7 +478,7 @@ class BDensemble:
         while alive and bounded:
             state = self.update(state)
             j,F,t = state[0]
-            if j == -1:
+            if j == 0:
                 alive = False
                 if v: print('burned out (absorbed).')
             if F >= self.J:
@@ -655,11 +491,19 @@ class BDensemble:
     def process_state(self,arr): # determine how many processes burned out, burned out of control a
         mask = np.logical_and(arr[:, 0] != 0, arr[:, 1] < self.J)
         out = arr[mask]
-        died_out = np.sum(arr[:, 0] == -1)
+        died_out = np.sum(arr[:, 0] == 0)
         out_of_control = np.sum(arr[:, 1] >= self.J)
-        died_out_times = arr[arr[:, 0] == -1, 2]
+        died_out_times = arr[arr[:, 0] == 0, 2]
         out_of_control_times = arr[arr[:, 1] >= self.J, 2]
         return out, [died_out, out_of_control], [died_out_times, out_of_control_times]
+
+    def ftpt_process(self,arr):
+        mask = np.logical_and(arr[:, 0] != 0, arr[:, 1] < self.J)
+        active = np.where(mask)
+        # print(active)
+        absorbed = np.where(arr[:, 0] == 0)
+        escaped = np.where(arr[:, 1] >= self.J)
+        return active,absorbed,escaped
     
     def run_ensemble(self,ret_times = False):
     
@@ -682,6 +526,41 @@ class BDensemble:
             return [ndied,nburned],[died_times,out_of_control_times]
         else:
             return [ndied,nburned]
+
+    def run_FtptHist(self):
+        initialized = self.initial_state
+        time_hist = np.array([np.zeros(self.tot)])
+        ftpt_hist = np.array([self.N*np.ones(self.tot)])
+        active = initialized
+        resarr = []
+        counter = 0
+        while len(active) > 0:
+            active = self.update(active)
+            active_inds,absorbed_inds,escaped_inds = self.ftpt_process(active)
+            # print('active',active_inds)
+            # print('absorbed',absorbed_inds)
+            # print('escaped',escaped_inds)
+            active = active[active_inds]
+            js,Fs,ts = active.T
+
+            dts = np.zeros(self.tot)
+            dts[active_inds] = ts
+            dts[absorbed_inds] = np.mean(ts)
+            dts[escaped_inds] = np.mean(ts)
+            time_hist = np.vstack((time_hist,dts))
+
+            dfs = np.zeros(self.tot)
+            dfs[active_inds] = Fs
+            dfs[absorbed_inds] = ftpt_hist[-1][absorbed_inds]
+            dfs[escaped_inds] = self.J
+            ftpt_hist = np.vstack((ftpt_hist,dfs))
+
+        return time_hist,ftpt_hist
+
+
+
+
+
 
 ##################################################################
 
@@ -958,6 +837,9 @@ if __name__ == "__main__":
 
     # the Jean curve
     import time
+
+    # ftpt data generation
+    print(asymAbsorb())
 
 
     # N = 5
